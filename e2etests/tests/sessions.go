@@ -90,50 +90,52 @@ var _ = Describe("Router Host configuration", Ordered, func() {
 		validateTORSession()
 	})
 
-	Context("with a l3 vni", func() {
-		vni := v1alpha1.L3VNI{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "red",
-				Namespace: openperouter.Namespace,
-			},
-			Spec: v1alpha1.L3VNISpec{
-				VRF: "red",
-				HostSession: &v1alpha1.HostSession{
-					ASN:     64514,
-					HostASN: 64515,
-					LocalCIDR: v1alpha1.LocalCIDRConfig{
-						IPv4: "192.169.10.0/24",
+	for i := range 2 {
+		Context(fmt.Sprintf("with a l3 vni %d", i), func() {
+			vni := v1alpha1.L3VNI{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "red",
+					Namespace: openperouter.Namespace,
+				},
+				Spec: v1alpha1.L3VNISpec{
+					VRF: "red",
+					HostSession: &v1alpha1.HostSession{
+						ASN:     64514,
+						HostASN: 64515,
+						LocalCIDR: v1alpha1.LocalCIDRConfig{
+							IPv4: "192.169.10.0/24",
+						},
 					},
+					VNI: 100,
 				},
-				VNI: 100,
-			},
-		}
-		BeforeEach(func() {
-			err := Updater.Update(config.Resources{
-				L3VNIs: []v1alpha1.L3VNI{
-					vni,
-				},
+			}
+			BeforeEach(func() {
+				err := Updater.Update(config.Resources{
+					L3VNIs: []v1alpha1.L3VNI{
+						vni,
+					},
+				})
+				Expect(err).NotTo(HaveOccurred())
 			})
-			Expect(err).NotTo(HaveOccurred())
-		})
 
-		It("establishes a session with the host and then removes it when deleting the vni", func() {
-			frrConfig, err := frrk8s.ConfigFromHostSession(*vni.Spec.HostSession, vni.Name)
-			Expect(err).ToNot(HaveOccurred())
-			err = Updater.Update(config.Resources{
-				FRRConfigurations: frrConfig,
+			It("establishes a session with the host and then removes it when deleting the vni", func() {
+				frrConfig, err := frrk8s.ConfigFromHostSession(*vni.Spec.HostSession, vni.Name)
+				Expect(err).ToNot(HaveOccurred())
+				err = Updater.Update(config.Resources{
+					FRRConfigurations: frrConfig,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				validateFRRK8sSessionForHostSession(vni.Name, *vni.Spec.HostSession, Established, frrk8sPods...)
+
+				By("deleting the vni removes the session with the host")
+				err = Updater.Client().Delete(context.Background(), &vni)
+				Expect(err).NotTo(HaveOccurred())
+
+				validateFRRK8sSessionForHostSession(vni.Name, *vni.Spec.HostSession, !Established, frrk8sPods...)
 			})
-			Expect(err).NotTo(HaveOccurred())
-
-			validateFRRK8sSessionForHostSession(vni.Name, *vni.Spec.HostSession, Established, frrk8sPods...)
-
-			By("deleting the vni removes the session with the host")
-			err = Updater.Client().Delete(context.Background(), &vni)
-			Expect(err).NotTo(HaveOccurred())
-
-			validateFRRK8sSessionForHostSession(vni.Name, *vni.Spec.HostSession, !Established, frrk8sPods...)
 		})
-	})
+	}
 
 	Context("with a l3 passthrough", func() {
 		l3Passthrough := v1alpha1.L3Passthrough{
